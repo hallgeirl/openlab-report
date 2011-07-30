@@ -1,0 +1,81 @@
+\section{Implementation}
+The project consists of two main parts:
+\begin{itemize}
+\item checksumd is the checksum daemon, written in Python. 
+\item checksum-monitor is a monitor written in Django that parses log files from checksumd to generate statistics and display details about checksum errors.
+\end{itemize}
+
+In addition there is the LeMon integration, but this was purely a configuration task. Please see section \ref{sec:lemon_integration} for details. 
+
+\subsection{Overview of architecture}
+An overview of the project can be seen in figure \ref{fig:complete_overview}. The checksumd program runs as a separate application on each disk server. For each file, it computes a checksum, and if there is an error it outputs this to an error log that resides in a folder in AFS. These entries consist of the filename, file size, the checksums, the path returned from the name server, the specifications of the machine (hardware model, hostname, etc.) and more. The same entry is also put in the syslog. 
+
+The checksum-monitor Django application parses the error logs that was stored on AFS. This can be set up as a cron job, or done manually through the web interface. The application will then parse the logs, organize the entries in a relational database, and display it to the clients according to their query preferences.
+
+With regular intervals (e.g. every 24 hours) a summary is also written to the syslog. This summary consists of, among other things, the aggregated numbers for the number of files checked, bad checksums, good checksums, etc. This is then parsed by the LeMon sensor, which is passed to the agent which passes it to the central LeMon database.
+
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.7\textwidth]{gfx/complete_overview}
+\caption{Architecture overview}
+\label{fig:complete_overview}
+\end{figure}
+
+\subsection{checksumd}
+The checksumd daemon is implemented as a standalone application in Python. In principle, it can be used for other types of machines than CASTOR disk servers as well, but that is not within the scope of this project. This section will give an overview of the daemon, as well as explain briefly the logging facility implemented for the purpose of this application.
+
+\subsubsection{Daemon overview}
+checksumd is built with threading in mind, and even when only one thread is specified at the command line, a new thread will be spawned to do the actual integrity checking work. The root thread are responsible for housekeeping (e.g. keeping the file list updated and write summaries). This way, housekeeping will not interfer with the actual integrity check operations. The root thread will from now on be referred to as the main thread.
+
+The process by which the daemon checks files are first by building a queue of all the disks. Each disk has a list of files to be checked (all files under the specified directory, that are not recently modified), and each has an index to the next file in the disk. Each of the mount points is assumed to be on a separate disk. At regular intervals, the main thread refreshes the file lists by querying for all files again, and adding new ones and removing deleted ones. 
+
+Until every file on each disk have been checked, each thread will grab one disk, check if it is busy, and if not, perform integrity checks on the files. If the thread detects that the disk becomes busy while checking, it will complete the current file it is working on and go check the next disk. If no more disks are remaining in the queue, the threads will sleep for a specified amount of time before attempting to check again, continuing where they left off. The process is modelled in figure \ref{fig:checksum_process}.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.5\textwidth]{gfx/disk_check_process}
+\caption{Process for selection of files for checking}
+\label{fig:checksum_process}
+\end{figure}
+
+\subsubsection{Features and configuration}
+All of checksumd's configuration is done by command line arguments. checksumd can be run in two modes: as a daemon, or as a regular command line tool. The available command line arguments are listed in table \ref{tab:cmdlineargs}.
+
+\begin{table}[ht]
+\begin{tabular}{lp{10cm}}
+\hline
+{\bf Argument}              & {\bf Description}\\
+\hline
+{\tt -{}-daemon}              & Run checksumd as a daemon.\\
+{\tt -{}-loopcount N}         & Run for N loops. Default: -1 (infinite) in daemon mode and 1 otherwise.\\
+{\tt -{}-nodlf}               & Disable output to syslog.\\
+{\tt -{}-checkns}             & Also check the content checksum against the one stored in the name server.\\
+{\tt -{}-throttlesleep N}     & Sleep for N seconds if all disks are found to be busy (or done), before doing another busy check. Default: 10 sec.\\
+{\tt -{}-maxruntime N}        & Terminate the program after N seconds. Default: infinite\\
+{\tt -{}-minrepeattime N}     & If checking all files takes T < N seconds, sleep for N-T seconds before checking them again. Default: 24 hours\\
+{\tt -{}-setchecksumifnone}   & Enable in order to set the checksum of files that does not have one.\\
+{\tt -{}-modifyignore N}      & Ignore files that have been modified less than N seconds ago. Default: 24 hours\\
+{\tt -{}-errorfile DIR}       & Save error logs under the directory DIR. Filenames are given as {\tt checksum\_errors\_<hostname>.log}.\\
+{\tt -{}-nthreads N}          & Use N worker threads for integrity checking. This does not include the main thread. Default: 2\\
+{\tt -{}-refreshrate N}       & Refresh the file queues every N seconds. Default: 1 hour\\
+{\tt -{}-verbose, -v}         & Enable more output.\\
+{\tt -{}-clear}               & Clear the checksum of the file if it's wrong.\\
+{\tt -{}-recoveryscript FILE} & If a checksum error was found, run this script. The character \$ represents the filename as an argument, so e.g. "fixchecksum \$" would run "fixchecksum" with the bad files as the argument. Default: None\\
+\hline
+\end{tabular}
+\caption{Command line arguments}
+\label{tab:cmdlineargs}
+\end{table}
+
+\subsubsection{Logging}
+checksumd may output log entries to multiple logging destinations, like the syslog, standard output (if running in non-daemon mode) and a flat file with file errors. Because of this, a unified log manager was developed that handles output to each log. One class, LogManager, are responsible for taking in a log entry and storing it in each log.  
+
+\subsection{checksum-monitor}
+A monitor for single events and statistics over multiple events have been developed. In addition to listing every event (checksum error), it supports searching over a specified time frame, on host name, hardware model, cluster name, and so on. It also displays statistics like counting events per host name, hardware model, and so on.
+
+\subsection{LeMon integration}
+\label{sec:lemon_integration}
+Monitoring of checksumd summaries are done using LeMon. More specifically, the metric ParseExtract in the sensor ParseLog was used. ParseExtract parses a log file, attempts to find a match for the regular expression given to the metric, and extracts specified values from each line. 
+
+In the case of checksumd, the following strategy is used: Every hour, the sensor will get the matching entries from the last hour, which should be either 0 or 1 entry as long as the reporting rate from the daemon is larger than one hour. It extracts the key numbers (\# files scanned, \# bad checksums found, ...) and stores them in the same order that they are found. This is not a problem because the key values will always be output in the same order. This data are then sent to the LeMon server by the agent.
