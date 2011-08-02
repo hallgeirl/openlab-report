@@ -10,10 +10,17 @@
 \usepackage{amsmath}
 \usepackage{enumerate}
 \usepackage{datetime}
-
+\usepackage{fancyhdr}
 
 % Paragraphs
 \linespread{1.5}
 
-\setlength{\parskip}{5pt plus3pt minus3pt}
+\setlength{\parskip}{12pt plus3pt minus3pt}
 \setlength{\parindent}{0pt}
+
+\pagestyle{fancy}
+\fancyhead{}
+
+\fancyhead[L]{\includegraphics[width=1cm]{gfx/openlab-logo-small}}
+\fancyhead[R]{\slshape \leftmark}
+

@@ -13,7 +13,7 @@ GFX=$(subst .eps,.pdf,$(shell ls gfx/*.eps))
 	$(TEX) $<
 	$(TEX) $<
 
-report.pdf: $(shell ls *.tex) $(GFX)
+report.pdf: $(shell ls *.tex) $(GFX) style.sty
 
 all:$(OUT)
 

@@ -1,1 +1,4 @@
 \section{Conclusion}
+I improved upon a script for integrity checking files on the disk servers used by the CASTOR storage manager. I implemented a more robust way of checking if a disk is busy or not, more options to override busy checks after a specified amount of time, implemented threading and improved the configuration script used for deployment.
+
+In addition, I implemented a Django web-based monitor for doing more detailed analysis of the errors encountered by checksumd. The web interface shows errors grouped by the user's group (where applicable), hostname and hardware model, as well as providing search over many different parameters like a timespan, hostname, cluster, and so on. For monitoring of the general progress and status of the checksumd checks, the ParseLog sensor in Lemon was adapted for use with the logs written by checksumd.
