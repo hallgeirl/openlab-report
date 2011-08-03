@@ -1,5 +1,15 @@
 \section{Implementation}
+This section will go into detail about the implementations of checksumd and checksum-monitor: classes, design patterns, etc. In addition, the integration with Lemon is briefly described.
+
 \subsection{checksumd}
+
+\subsubsection{Disk and DiskQueue objects}
+As mentioned in section \ref{sec:checksumd_overview}, disks are kept in a queue, and each disk has a list of files as well as indices pointing to the next file. The root directory of the scan, specified when running the daemon (default /srv/castor if nothing is specified) is assumed to contain folders that are mount points for different disks. A Disk object is then created for each of these mount points, which contain the mount point, an index to the next file and a list of absolute paths of files on that disk. Whenever the next file on the disk is requested (by calling {\tt Disk.get\_next\_file()}), the file at the current index is returned, and the index is incremented.
+
+At certain intervals, the file lists are refreshed for each disk. When the file list is refreshed, a cleanup is performed first, which traverses the current file list and removes all files that no longer exist or that have been modified recently, after it was added to the list. Then, the Disk objects first get a full list of all the files on the disk (by recursively traversing the directories). Files that doesn't match certain criteria, e.g. files that was modified recently, is not included.
+
+%\subsub
+
 Disk queue
 File queue
 Threads

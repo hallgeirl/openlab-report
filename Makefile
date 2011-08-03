@@ -2,12 +2,16 @@ TEX=pdflatex
 OUT=report.pdf
 TRASH=$(shell ls *.aux *.idx *.log *.toc *.ilg *.ind *.backup 2>/dev/null)
 
-GFX=$(subst .eps,.pdf,$(shell ls gfx/*.eps))
+GFX=$(subst .dia,.pdf,$(shell ls gfx/*.dia))
 
-.SUFFIXES : .pdf .tex .eps
+.SUFFIXES : .pdf .tex .eps .dia
 
-.eps.pdf:
-	epstopdf $<
+.dia.pdf:
+	dia -e $(subst .dia,.eps,$<) $<
+	epstopdf $(subst .dia,.eps,$<)
+
+#.dia.eps:
+#	dia -e $@ $<
 
 .tex.pdf:
 	$(TEX) $<

@@ -23,14 +23,16 @@ With regular intervals (e.g. every 24 hours) a summary is also written to the sy
 \end{figure}
 
 \subsection{checksumd}
-The checksumd daemon is implemented as a standalone application in Python. In principle, it can be used for other types of machines than CASTOR disk servers as well, but that is not within the scope of this project. This section will give an overview of the daemon, as well as explain briefly the logging facility implemented for the purpose of this application.
+\label{sec:checksumd_overview}
+The checksumd daemon is implemented as a standalone application in Python. In principle, it can be used for other types of machines than CASTOR disk servers as well, but that is not within the scope of this project. This section will give an overview of the daemon.
 
 \subsubsection{Daemon overview}
-checksumd is built with threading in mind, and even when only one thread is specified at the command line, a new thread will be spawned to do the actual integrity checking work. The root thread are responsible for housekeeping (e.g. keeping the file list updated and write summaries). This way, housekeeping will not interfer with the actual integrity check operations. The root thread will from now on be referred to as the main thread.
 
-The process by which the daemon checks files are first by building a queue of all the disks. Each disk has a list of files to be checked (all files under the specified directory, that are not recently modified), and each has an index to the next file in the disk. Each of the mount points is assumed to be on a separate disk. At regular intervals, the main thread refreshes the file lists by querying for all files again, and adding new ones and removing deleted ones. 
+The process by which the daemon checks files are first by building a queue of all the disks. Each disk has a list of files to be checked (all files under the specified directory, that are not recently modified), and each has an index that points to the next file on the disk. Each of the mount points is assumed to be on a separate disk. At regular intervals, the main thread refreshes the file lists by querying for all files again, and adding new ones and removing deleted ones. 
 
-Until every file on each disk have been checked, each thread will grab one disk, check if it is busy, and if not, perform integrity checks on the files. If the thread detects that the disk becomes busy while checking, it will complete the current file it is working on and go check the next disk. If no more disks are remaining in the queue, the threads will sleep for a specified amount of time before attempting to check again, continuing where they left off. The process is modelled in figure \ref{fig:checksum_process}.
+checksumd is built with threading in mind, and even when only one thread is specified at the command line, a new thread will be spawned to do the actual integrity checking work. The main thread are responsible for housekeeping (e.g. keeping the file list updated and write summaries). This way, housekeeping will not interfer with the actual integrity check operations. 
+
+Until every file on each disk have been checked, each thread will grab one disk, check if it is busy, and if it is not, compute the checksum of the files. If the thread detects that the disk becomes busy while checking, it will complete the current file it is working on and go check the next disk. If no more disks are remaining in the queue, the threads will sleep for a specified amount of time before attempting to check again, continuing where they left off. The process is modelled in figure \ref{fig:checksum_process}.
 
 \begin{figure}[ht]
 \centering
@@ -39,11 +41,9 @@ Until every file on each disk have been checked, each thread will grab one disk,
 \label{fig:checksum_process}
 \end{figure}
 
-
 \subsection{checksum-monitor}
 A monitor for individual events (errors) and statistics over multiple events have been developed. In addition to displaying the checksum errors from checksumd, it may also display a list of resolved events (e.g. events that the user has been notified about but that was impossible to fix), as well as "lost" files, that is, files that were lost on disk servers due to crashes or other events.  The monitor also supports, in addition to listing every event, searching over a specified time frame, on host name, hardware model, cluster name, and so on. It also displays statistics like counting events per host name, hardware model, and user group. The monitor was fully developed in Python using Django. 
 
-\subsubsection{Web interface}
 A screenshot from the web interface is shown in figure \ref{fig:monitor-index}. Statistics are shown to the right, grouped on hostname, hardware model and user group. Events can be filtered based on age (e.g. less than 24 hours, less than a week, ...), on hostname (by clicking each hostname), by hardware model, or group. Since there may be a lot of errors in e.g. the Lost files category, paging was also implemented, where only a subset of the events are displayed at once. Up to 1000 events can be shown at one page. To switch category, one can click "From checksumd" for checksumd errors, "Fixed" for resolved errors and "Lost files" for files from the lost files logs.
 
 \begin{figure}[ht]
