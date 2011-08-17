@@ -1,31 +1,38 @@
 \section{Implementation}
-This section will go into detail about the implementations of checksumd and checksum-monitor: classes, design patterns, etc. In addition, the integration with Lemon is briefly described.
+This section goes into detail about the implementations of checksumd and checksum-monitor: classes, design patterns, etc. In addition, the integration with Lemon is briefly described.
 
 \subsection{checksumd}
 
 \subsubsection{Disk and DiskQueue objects}
 As mentioned in section \ref{sec:checksumd_overview}, disks are kept in a queue, and each disk has a list of files as well as indices pointing to the next file. The root directory of the scan, specified when running the daemon (default /srv/castor if nothing is specified) is assumed to contain folders that are mount points for different disks. A Disk object is then created for each of these mount points, which contain the mount point, an index to the next file and a list of absolute paths of files on that disk. Whenever the next file on the disk is requested (by calling {\tt Disk.get\_next\_file()}), the file at the current index is returned, and the index is incremented.
 
-At certain intervals, the file lists are refreshed for each disk. When the file list is refreshed, a cleanup is performed first, which traverses the current file list and removes all files that no longer exist or that have been modified recently, after it was added to the list. Then, the Disk objects first get a full list of all the files on the disk (by recursively traversing the directories). Files that doesn't match certain criteria, e.g. files that was modified recently, is not included. This new list of files is then traversed. For each file, if it is in the file list already, it's ignored. If not, it's added. A hash map is used to keep track of which files are currently in the file list; this is due to the must faster lookup in a hash map than a list.
+At certain intervals, the file lists are refreshed for each disk. When the file list is refreshed, a cleanup is performed first, which traverses the current file list and removes all files that no longer exist or that have been modified recently, after they were added to the list. Then, the Disk objects first get a full list of all the files on the disk (by recursively traversing the directories). Files that don't match certain criteria, e.g. files that were modified recently, are not included. This new list of files is then traversed. For each file, if it is in the file list already, it's ignored. If not, it's added. A hash map is used to keep track of which files are currently in the file list; this is due to the much faster lookup in a hash map than a list.
 
-The DiskQueue objects are simply a list of disks, which also implements locking for thread safety. There is one main disk queue shared by all thread and each thread may call {\tt DiskQueue.get\_next\_disk()} to get the next one in queue. The queue will then first be locked, the index will be incremented, the lock is released, and a Disk instance will be returned to the caller. In addition to providing queue functionality, DiskQueue objects also has wrapper functions for counting all files on the disks, refresh all disks and so on.
+A DiskQueue object contains a list of disks, and also implements locking for thread safety. There is one main disk queue shared by all threads and each thread may call {\tt DiskQueue.get\_next\_disk()} to get the next disk in the queue. The queue will then first be locked, the index will be incremented, the lock is released, and a Disk instance will be returned to the caller. In addition to providing queue functionality, a DiskQueue object also has wrapper functions for counting all files on the disks, refreshing all disks and so on.
 
 \subsubsection{Threading}
-checksumd is mainly an IO bound application; most of the time it simply waits for IO, and the typical CPU usage when processing just one file is about 20-30\% on one core for a modern CPU. Having more than one thread on one disk will hurt performance due to more non-sequential reads, but processing multiple disks at once with one thread per disk will utilize more of the available processing power. As DiskQueue objects are thread safe, each thread may request a disk and be sure that this disk is not given to any other thread, so implementing multithreading is trivial in this case.
+checksumd is mainly an IO bound application; most of the time it simply waits for IO, and the typical CPU usage when processing just one file is about 20-30\% on one core for a modern CPU. Having more than one thread on one disk will hurt performance due to more non-sequential reads, but processing multiple disks at once with one thread per disk will utilize more of the available processing power. As DiskQueue objects are thread safe, each thread may request a disk and be sure that this disk is not given to any other thread, so the effort of implementing multithreading is trivial in this case.
 
-Each thread is represented by a ChecksumThread object which inherits the threading.Thread class. A thread lives as long as there are files left to check; once all files have been check, the threads will die and the main thread will sleep for a specified number of seconds, before the threads are spawned again to do another check. Each thread follows the following logic:
+Each worker thread is represented by a ChecksumThread object which inherits the threading.Thread class. A worker thread lives as long as there are files left to check; once all files have been checked, the worker threads will die and the main thread will sleep for a specified number of seconds, before the threads are spawned again to do another check. Each worker thread follows the following logic:
 \begin{enumerate}
 \item Get a disk from the disk queue
-\item Until disk becomes busy, or all files has been checked, perform integrity checks on the files.
-\item Release the disk, and get a new one. Go to \#2 until there are no more disks in the queue.
+\item Until disk becomes busy, or all files have been checked, perform integrity checks on the files.
+\item Release the disk, and get a new one. Go to 2. until there are no more disks in the queue.
 \item If all files have been checked, then exit. If not, sleep for a certain number of seconds before resetting the queue and checking each disk again to see if they are now free.
 \end{enumerate}
 
 \subsubsection{Logging}
-checksumd may output log entries to multiple logging destinations, like the syslog, standard output (if running in non-daemon mode) and a flat file with file errors. Because of this, a unified log manager was developed that handles output to each log. One class, LogManager, are responsible for taking in a log entry and storing it in each log. Loggers may be added to the LogManager by calling {\tt add\_logger()}.
+checksumd may output log entries to multiple logging destinations, like the syslog, standard output (if running in non-daemon mode) and a flat file with file errors. Because of this, a unified log manager was developed that handles output to each log. One class, LogManager, is responsible for taking in a log entry and storing it in each log. Loggers may be added to the LogManager by calling {\tt add\_logger()}. Figure \ref{fig:logging} shows an overview of these classes.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.5\textwidth]{gfx/logging}
+\caption{Logging in checksumd}
+\label{fig:logging}
+\end{figure}
 
 \subsection{checksum-monitor}
-The checksum monitor application is developed using Django, which uses a model-view-template architecture where the model represents the actual data, and the view serves data to the template for viewing, and the template formats the actual output. The access to the database is made transparent by Django. 
+The checksum monitor application was developed using Django, which uses a model-view-template architecture where the model represents the actual data, the view serves data to the template for viewing, and the template formats the actual output. The access to the database is made transparent by Django. 
 
 There are three views:
 \begin{description}
@@ -34,11 +41,11 @@ There are three views:
 \item[query] displays the search form.
 \end{description} 
 
-The models of this application is rather simple. There is two entity classes: Host and Event. Host represents one host, with a hardware model, hostname and serial number. An Event represents one event, which can be a lost file, a checksum error, or resolved checksum error. Each event has the following fields:
+The models of this application are rather simple. There are two entity classes: Host and Event. A Host represents one host, with a hardware model, hostname and serial number. An Event represents one event, which can be a lost file, a checksum error, or a resolved checksum error. Each event has the following fields:
 \begin{description}
 \item[host] is the foreign key to the Host model.
-\item[timestamp] is the time of the event (from the log, not when it was put in the database)
-\item[filepath] is the path on the file server for the file that this event regards.
+\item[timestamp] is the time of the event (from the log, rather than when it was put in the database)
+\item[filepath] is the path on the file server for the file that this event applies to.
 \item[nspath] is the name server path of this file.
 \item[cluster] is the cluster that the host was in at the time of this event. The reason this is not in the Host model instead is due to the fact that hosts may be moved between clusters.
 \item[category] describes the type of event (lost file, checksum error or resolved checksum error)
@@ -47,8 +54,20 @@ The models of this application is rather simple. There is two entity classes: Ho
 
 All templates are stored in <django\_project\_path>/templates. There is a base template, base.html, which contains the base layout (title, menu, ...) as well as including the stylesheet, style.css. Static files, like images, stylesheets and so on, are served using the view django.views.static.serve as described by the Django documentation\cite{django}. These files are kept in the directory <django\_project\_path>/static.
 
+\subsubsection{Implementation of the index view}
+The index view is the main view showing the entries, statistics and everything else of interest. First, the query string from the URL is parsed, which contains the current state of the web page (e.g. which page have the user browsed to, the page size (in \# entries), the different filters used, sorting information (which field to sort on, ascending/descending), ...). The filters that are not None are then applied to the Event database. The events are then grouped so that there is only one entry per (hostname, path) tuple; this is done because the same error may be found several times. The number of times the error was found, along with the latest timestamp, is retrieved from the database.
+
+Finally the links on the page (e.g. the category links, page size links, sorting links, ...) is generated, and everything is then passed to the template. 
+
+\subsubsection{Log parsing}
+When the refresh command is issued, the log directories are scanned and the events are put in the local relational database. In addition, some information is retrieved using "nsls" and similar queries.
+
+First, all the existing hosts are retrieved from the database, so that there is no need to query the host table for every entry to check if we need to add a new host. Then, a dictionary is set up that maps the existing entries, by selecting all the objects from the event table. The tuple (timestamp, hostname, path) is assumed to be unique. This is very fast compared to doing a select operation per entry in the log files. This way, the log parser can continue where it left off if it is interrupted, and adding new log entries will take less time once the bulk has been added already.
+
+For inserting into the database, threading is utilized because of rather large delays due to the queries to external servers. Each thread will be given a portion of the rows from the logs. For every entry in the thread's set of rows, the thread will do a lookup in the dictionary. If the entry is there (i.e. the entry's (timestamp, hostname, path) tuple exists in the dictionary), it will skip the entry. If not, it will do an nsls query to find the time it was modified, the user and group of the files and so on. Finally, the event will be added to the database.
+
 \subsection{Lemon integration}
 \label{sec:lemon_integration}
 Monitoring of checksumd summaries are done using Lemon. More specifically, the metric ParseExtract in the sensor ParseLog was used. ParseExtract parses a log file, attempts to find a match for the regular expression given to the metric, and extracts specified values from each line. 
 
-In the case of checksumd, the following strategy is used: Every hour, the sensor will get the matching entries from the last hour, which should be either 0 or 1 entry as long as the reporting rate from the daemon is larger than one hour. It extracts the key numbers (\# files scanned, \# bad checksums found, ...) and stores them in the same order that they are found. This is not a problem because the key values will always be output in the same order. This data are then sent to the Lemon server by the agent.
+In the case of checksumd, the following strategy is used: Every hour, the sensor will get the matching entries from the last hour, which should be either 0 or 1 entry as long as the reporting rate from the daemon is larger than one hour. It extracts the key numbers (number of files scanned, number of bad checksums found, and so on) and stores them in the same order that they are found. This is not a problem because the key values will always be output in the same order. This data is then sent to the Lemon server by the agent.

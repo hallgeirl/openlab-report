@@ -3,7 +3,10 @@
 \subsection{checksumd}
 All of checksumd's configuration is done by command line arguments. checksumd can be run in two modes: as a daemon, or as a regular command line tool. The available command line arguments are listed in table \ref{tab:cmdlineargs}.
 
-\begin{table}[ht]
+
+A default configuration file, /etc/sysconfig/checksumd is shipped with the software package containing the daemon. This is a basic shell script that puts the command line arguments into an environment variable \$CHECKSUMD\_OPTIONS that is used by checksumd's runscript (typically /etc/init.d/checksumd). E.g., setting \$CHECKSUMD\_OPTIONS to -{}-maxwait 90, causes the runscript to run "checksumd -{}-maxwait 90 -{}-daemon" (daemon mode is implied by the init.d script).
+
+\begin{table}[H]
 \begin{tabular}{lp{10cm}}
 \hline
 {\bf Argument}              & {\bf Description}\\
@@ -14,9 +17,9 @@ All of checksumd's configuration is done by command line arguments. checksumd ca
 {\tt -{}-checkns}             & Also check the content checksum against the one stored in the name server.\\
 {\tt -{}-throttlesleep N}     & Sleep for N seconds if all disks are found to be busy (or done), before doing another busy check. Default: 10 sec.\\
 {\tt -{}-maxruntime N}        & Terminate the program after N seconds. Default: infinite\\
-{\tt -{}-maxwait N}           & If disks are busy and has M open files, force a check after $N\cdot 2^{M-1}$ seconds. Default: -1 (infinity)\\
+{\tt -{}-maxwait N}           & If disks are busy and have M open files, force a check after $N\cdot 2^{M-1}$ seconds. Default: -1 (infinity)\\
 {\tt -{}-minrepeattime N}     & If checking all files takes T < N seconds, sleep for N-T seconds before checking them again. Default: 24 hours\\
-{\tt -{}-setchecksumifnone}   & Enable in order to set the checksum of files that does not have one.\\
+{\tt -{}-setchecksumifnone}   & Enable in order to set the checksum of files that do not have one.\\
 {\tt -{}-modifyignore N}      & Ignore files that have been modified less than N seconds ago. Default: 24 hours\\
 {\tt -{}-errorfile DIR}       & Save error logs under the directory DIR. Filenames are given as {\tt checksum\_errors\_<hostname>.log}.\\
 {\tt -{}-nthreads N}          & Use N worker threads for integrity checking. This does not include the main thread. Default: 2\\
@@ -31,19 +34,37 @@ All of checksumd's configuration is done by command line arguments. checksumd ca
 \label{tab:cmdlineargs}
 \end{table}
 
-A default configuration file, /etc/sysconfig/checksumd is shipped with the RPM containing the daemon. This is a basic shell script that puts the command line arguments into an environment variable \$CHECKSUMD\_OPTIONS that is used by checksumd's runscript (typically /etc/init.d/checksumd). E.g., setting \$CHECKSUMD\_OPTIONS to -{}-maxwait 90, causes the runscript to run "checksumd -{}-maxwait 90 -{}-daemon" (daemon mode is implied by the init.d script).
-
 \subsection{checksum-monitor}
-The checksum monitor is more or less a standard Django application, and thus its configuration can be found in <django\_project\_root>/settings.py. In addition to the standard settings like database paths and passwords, the following values must be configured properly:
-\begin{itemize}
-\item MONITOR\_ROOT: Points to the Django project root directory, e.g. /www/checksum-monitor.
-\item APP\_ROOT: Relative path from MONITOR\_ROOT to where the application itself (views.py, models.py, ...) is contained, e.g. /monitor/.
-\item Log paths; tuples of (PATH, EXT) where PATH points to the log directory described below, and EXT is the file extension of the logs in that file (e.g. ".log"):
-\begin{itemize}
-\item log\_path: PATH points to the log directory where error logs from checksumd is stored.
-\item fixed\_checksums\_path: PATH points to the log directory where resolved checksum errors are stored.
-\item lost\_files\_path: PATH points to the log directory where lost file logs are stored.
-\end{itemize}
-\end{itemize}
+The checksum-monitor main settings file is "settings.py" in the root directory of the checksum-monitor project. The important configuration variables are
+\begin{description}
+\item[DEBUG] enables or disables debug mode. It may be most reasonable to set this to False for security reasons. In addition, with debug mode enabled, a history of all queries is stored, so that the application in effect leaks memory. This is problematic because it will lead to a crash after some time.
+\item[DATABASES] has the database information: type of database (e.g. SQLite or MySQL), database name and path, username/password and so on. As default, it is set up with MySQL on localhost with username root without a password.
+\item[MONITOR\_ROOT] is the root directory of the checksum-monitor project. This must be set.
+\item[log\_path] is the (log path, extension) tuple for the checksumd error logs.
+\item[fixed\_checksums\_path] is the (path, extension) tuple of the logs containing resolved checksum errors.
+\item[lost\_files\_path] is the (path, extension) tuple of the logs containing lost files.
+\item[stager\_hosts] is a list of the stager hosts used for checking if a file is lost.
+\end{description}
 
-After the configuration is set up properly, there are two ways of refreshing the database of events: Running "python manage.py refresh" from the project root directory, or using the Refresh button in the web interface. All files in the specified directories will then be read and parsed, and rows will be inserted into the database. 
+After the database is set up and the settings are updated, the tables can be created automatically:
+
+{\tt <MONITOR\_ROOT>/manage.py syncdb} 
+
+All the required tables will then be set up with the proper keys and datatypes. The web server can then be set up to listen on port 80 using
+
+{\tt <MONITOR\_ROOT>/manage.py runserver 0.0.0.0:80} 
+
+However, the recommended way is using a third-party web server like for instance apache, as the built-in web server is not intended for production use.
+
+\subsubsection{Refreshing the database}
+When new log entries are added, the database must be refreshed (logs must be parsed again) for the entries to show up in the monitor. There are two ways:
+\begin{enumerate}
+\item Using the web interface's "Refresh" link.
+\item Calling the refresh command directly through manage.py, e.g. through a cron job.
+\end{enumerate}
+
+The second method may be the preferred one because it ensures that many people don't call the refresh command at once. The syntax is
+
+{\tt <MONITOR\_ROOT>/manage.py refresh <category>} 
+
+where <category> can be "checksumd", "fixed" or "lostfiles". The log directory for the specified category will then be scanned and new entries will be added.
